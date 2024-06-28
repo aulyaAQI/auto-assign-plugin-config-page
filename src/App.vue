@@ -8,9 +8,22 @@ import Multiselect from 'vue-multiselect';
 const configStore = useConfigStore();
 const dropDownStore = useDropDownStore();
 
-const {priorityList, referenceApp, hasConfig, editMode, priorityListLength, assignmentThresholdField, threshold, thisAppId, assigneeField} =
-  storeToRefs(configStore);
-const {referenceAppFields, apps, priorityCriteriaFields, userFields} = storeToRefs(dropDownStore);
+const {
+  priorityList,
+  referenceApp,
+  hasConfig,
+  editMode,
+  priorityListLength,
+  assignmentThresholdField,
+  threshold,
+  thisAppId,
+  assigneeField,
+  isKintoneEnvironment,
+  formReadOnly,
+  sourceAssignmentDateField,
+  sourceDedicatedAssigneeField,
+} = storeToRefs(configStore);
+const {referenceAppFields, apps, priorityCriteriaFields, userFields, sourceDateFields, sourceAssigneeFields} = storeToRefs(dropDownStore);
 
 const startIndexHolder = toRef(null);
 const startIndexInitial = toRef(null);
@@ -18,39 +31,29 @@ const isDragging = toRef(false);
 
 function handleDragStart(e) {
   const target = e.target;
-  console.log('yo wadap');
   e.dataTransfer.setDragImage(event.target, window.outerWidth, window.outerHeight);
 
   isDragging.value = true;
 
   const row = target.closest('tr');
   const startIndex = row.getAttribute('data-index');
-  console.log({startIndex});
   startIndexHolder.value = parseInt(startIndex);
   startIndexInitial.value = parseInt(startIndex);
-  console.log(isDragging.value);
 
-  configStore.priorityList.forEach((list, index) => {
+  configStore.priorityList.forEach((list) => {
     list.priority = null;
   });
 }
 
-function moveTarget(e, listIndex) {
+function moveTarget(e) {
   const target = e.target;
 
   const row = target.closest('tr');
   const endIndex = row.getAttribute('data-index');
 
-  const elName = e.target.localName;
-
-  if (elName !== 'td' && elName !== 'tr' && elName !== 'table' && elName !== 'tbody' && elName !== 'div') {
-    console.log({elName});
-  }
-
   priorityList.value.splice(parseInt(endIndex), 0, priorityList.value.splice(startIndexHolder.value, 1)[0]);
 
   startIndexHolder.value = parseInt(endIndex);
-  // console.log({stRef: startIndexHolder.value, listIndex});
 }
 
 function handleDragEnd(e) {
@@ -68,35 +71,40 @@ function handleDragEnd(e) {
 }
 
 onMounted(() => {
-  console.log('mounted');
-
   dropDownStore.fetchDropDownApps();
+  dropDownStore.fetchSourceDateFields();
+  dropDownStore.fetchSourceAssigneeFields();
 
-  if (typeof kintone !== 'undefined') {
+  if (isKintoneEnvironment.value) {
     // eslint-disable-next-line no-undef
     const config = kintone.plugin.app.getConfig(kintone.$PLUGIN_ID);
-    console.log({config});
 
     if (hasConfig.value) {
       const parsedConfig = configStore.getParsedConfig(config);
 
-      const {referenceApp, assignmentThresholdField, assigneeField, threshold, priorityList} = parsedConfig;
-
-      console.log({referenceApp, assignmentThresholdField, assigneeField, threshold, priorityList});
+      const {
+        referenceApp,
+        assignmentThresholdField,
+        assigneeField,
+        threshold,
+        priorityList,
+        sourceAssignmentDateField,
+        sourceDedicatedAssigneeField,
+      } = parsedConfig;
 
       configStore.setReferenceApp(referenceApp);
       configStore.setAssignmentThresholdField(assignmentThresholdField);
       configStore.setPriorityList(priorityList);
       configStore.setAssigneeField(assigneeField);
       configStore.setThreshold(threshold);
+      configStore.setSourceAssignmentDateField(sourceAssignmentDateField);
+      configStore.setSourceDedicatedAssigneeField(sourceDedicatedAssigneeField);
     }
-
-    console.log(configStore.$state);
   }
 });
 
 watch(referenceApp, (newVal) => {
-  if (hasConfig.value && !editMode.value) return;
+  if (formReadOnly.value) return;
 
   if (!newVal) return;
 
@@ -114,8 +122,16 @@ watch(referenceApp, (newVal) => {
   configStore.autoNumberingPriorityList();
 });
 
+watch(assignmentThresholdField, (newVal) => {
+  if (formReadOnly.value) return;
+
+  if (!newVal) return;
+
+  configStore.setFirstComponentField(newVal);
+});
+
 watch(priorityListLength, () => {
-  if (hasConfig.value && !editMode.value) return;
+  if (formReadOnly.value) return;
 
   configStore.autoNumberingPriorityList();
 });
@@ -126,15 +142,78 @@ watch(priorityListLength, () => {
     <div class="row mb-3">
       <div class="col">
         <div class="card mb-3">
-          <div class="card-header">Plugin Settings</div>
-          <div class="card-body"></div>
+          <div class="accordion" id="accordionExample">
+            <div class="accordion-item">
+              <h2 class="accordion-header" id="headingOne">
+                <button
+                  class="accordion-button"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#collapseOne"
+                  aria-expanded="true"
+                  aria-controls="collapseOne"
+                >
+                  Plugin Settings
+                </button>
+              </h2>
+              <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#accordionExample">
+                <div class="accordion-body">
+                  <p>This plugin is intended to be used to suggest assignee for kintone records based on the priority list.</p>
+                  <p>Important notes:</p>
+                  <ul>
+                    <li>Make sure you have set the reference app.</li>
+                    <li>Make sure you have set process management for the source app.</li>
+                    <li>Please note that the plugin will only suggest assignee on the initial status.</li>
+                    <li>
+                      When the suggested assignee is confirmed, It will advance the status to next status and assign the selected assignee. It will
+                      also increment the threshold field value by 1
+                    </li>
+                    <li>When the workflow reached the final status, It will decrement the threshold field value by 1</li>
+                  </ul>
+                  <p>Steps to use the plugin:</p>
+                  <ol>
+                    <li>Select the reference app.</li>
+                    <ul>
+                      <li>
+                        Set threshold reference field. This field will be used as reference for keep track of number of assignment (increment and
+                        decrement).
+                      </li>
+                      <li>Set assignee field. This field will be used as reference key for assignee.</li>
+                      <li>Set the threshold. This input will be used as threshold for assigning.</li>
+                    </ul>
+                    <li>Setting for the source (this) app.</li>
+                    <ul>
+                      <li>Set assignment date to keep track of when the assignee is set to a record.</li>
+                      <li>Set dedicated assignee field for reference in process management.</li>
+                    </ul>
+                    <li>Set the priority conditions (table).</li>
+                    <ul>
+                      <li>
+                        The first row will be the default row. This row will be used as default threshold component and would be the number 1 priority
+                        for auto assign suggestion. This row cannot be removed.
+                      </li>
+                      <li>Priority will be used to set the order of the priority list, the higher the better.</li>
+                      <li>Set the component which will be used as priority evaluation.</li>
+                      <li>Select the criteria for corresponding component. From lowest value or from highest value.</li>
+                      <li>You can also add or remove the row from the list ass needed</li>
+                      <li>Make sure you don't input the same component more than once</li>
+                    </ul>
+                    <li>Click the "Save" button to save the configuration.</li>
+                  </ol>
+                  <p>The plugin will then be available in this app to suggest assignee on record's detail.</p>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="card-footer">
             <div d-flex flex-row>
-              <button type="button" class="btn btn-primary action-button" @click.prevent="configStore.saveConfig()">Save</button>
+              <button type="button" class="btn btn-primary action-button" @click.prevent="configStore.saveConfig" v-if="editMode || !formReadOnly">
+                Save
+              </button>
               <button type="button" class="btn btn-info action-button ms-2" @click.prevent="configStore.toggleEditMode" v-if="hasConfig">
                 {{ configStore.editMode ? 'Cancel Edit' : 'Edit' }}
               </button>
-              <button type="button" class="btn btn-secondary action-button ms-2" @click.prevent="() => history.back()">Cancel</button>
+              <button type="button" class="btn btn-secondary action-button ms-2" @click.prevent="configStore.redirectToSettingsPage">Cancel</button>
             </div>
           </div>
         </div>
@@ -158,7 +237,7 @@ watch(priorityListLength, () => {
                       label="label"
                       placeholder="Select App"
                       :loading="apps.isLoading"
-                      :disabled="apps.isLoading || (!editMode && hasConfig)"
+                      :disabled="apps.isLoading || formReadOnly"
                       :showLabels="false"
                     ></Multiselect>
                   </div>
@@ -186,7 +265,7 @@ watch(priorityListLength, () => {
                       label="label"
                       placeholder="Select Field"
                       :loading="apps.isLoading"
-                      :disabled="apps.isLoading || (!editMode && hasConfig)"
+                      :disabled="apps.isLoading || formReadOnly"
                       :showLabels="false"
                     ></Multiselect>
                   </div>
@@ -195,7 +274,7 @@ watch(priorityListLength, () => {
               <div class="col-sm-6">
                 <div class="row">
                   <div class="col">
-                    <label for="assignment-threshold-field-code" class="form-label">Assignment Threshold Field Code</label>
+                    <label for="dedicated-assignee-field-code" class="form-label">Dedicated Assignee Field Code</label>
                     <input class="form-control" id="assignment-threshold-field-code" type="text" :value="assignmentThresholdField?.code" disabled />
                   </div>
                 </div>
@@ -214,7 +293,7 @@ watch(priorityListLength, () => {
                       label="label"
                       placeholder="Select User Field"
                       :loading="userFields.isLoading"
-                      :disabled="userFields.isLoading || (!editMode && hasConfig)"
+                      :disabled="userFields.isLoading || formReadOnly"
                       :showLabels="false"
                     ></Multiselect>
                   </div>
@@ -242,6 +321,69 @@ watch(priorityListLength, () => {
           </div>
         </div>
       </div>
+      <div class="col">
+        <div class="card mb-3">
+          <div class="card-header">Source App Settings</div>
+          <div class="card-body">
+            <div class="row section upper-form-section mb-3">
+              <div class="col-sm-6">
+                <div class="row">
+                  <div class="col">
+                    <label for="select-assignment-field" class="form-label">Assignment Date Field</label>
+                    <Multiselect
+                      id="select-assignment-field"
+                      v-model="sourceAssignmentDateField"
+                      :options="sourceDateFields.options"
+                      trackBy="code"
+                      label="label"
+                      placeholder="Select Field"
+                      :loading="sourceDateFields.isLoading"
+                      :disabled="sourceDateFields.isLoading || formReadOnly"
+                      :showLabels="false"
+                    ></Multiselect>
+                  </div>
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="row">
+                  <div class="col">
+                    <label for="select-assignment-field-code" class="form-label">Assignment Date Field Code</label>
+                    <input class="form-control" id="select-assignment-field-code" type="text" :value="sourceAssignmentDateField?.code" disabled />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="row section upper-form-section mb-3">
+              <div class="col-sm-6">
+                <div class="row">
+                  <div class="col">
+                    <label for="select-dedicated-assignee-field" class="form-label">Dedicated Assignee Field</label>
+                    <Multiselect
+                      id="select-dedicated-assignee-field"
+                      v-model="sourceDedicatedAssigneeField"
+                      :options="sourceAssigneeFields.options"
+                      trackBy="code"
+                      label="label"
+                      placeholder="Select Field"
+                      :loading="sourceAssigneeFields.isLoading"
+                      :disabled="sourceAssigneeFields.isLoading || formReadOnly"
+                      :showLabels="false"
+                    ></Multiselect>
+                  </div>
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <div class="row">
+                  <div class="col">
+                    <label for="dedicated-assignee-field-code" class="form-label">Dedicated Assignee Field Code</label>
+                    <input class="form-control" id="dedicated-assignee-field-code" type="text" :value="sourceDedicatedAssigneeField?.code" disabled />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
   <div class="container-table container" v-if="referenceApp?.appId">
@@ -260,6 +402,7 @@ watch(priorityListLength, () => {
         <tbody>
           <tr v-for="(list, listIndex) in priorityList" :key="listIndex" :data-index="listIndex">
             <td
+              v-if="listIndex !== 0 && !formReadOnly"
               class="col-hollow-right-edge text-end align-middle"
               @dragover.prevent="moveTarget($event, listIndex)"
               :class="{
@@ -277,11 +420,12 @@ watch(priorityListLength, () => {
                 @dragover.prevent
                 @dragstart="handleDragStart"
                 @dragend="handleDragEnd"
-                v-if="!isDragging || listIndex === startIndexHolder"
+                v-if="(!isDragging || listIndex === startIndexHolder) && listIndex !== 0"
               >
                 <font-awesome-icon icon="fa-solid fa-arrows-up-down" size="lg" class="drag-handle" @dragover.prevent />
               </i>
             </td>
+            <td class="col-hollow-right-edge text-end align-middle" v-else></td>
             <td>
               <input class="form-control" type="number" :value="list.priority" disabled />
             </td>
@@ -292,7 +436,7 @@ watch(priorityListLength, () => {
                 trackBy="code"
                 label="label"
                 :loading="referenceAppFields.isLoading"
-                :disabled="referenceAppFields.isLoading || (!editMode && hasConfig)"
+                :disabled="referenceAppFields.isLoading || formReadOnly || listIndex === 0"
                 :showLabels="false"
               ></Multiselect>
             </td>
@@ -306,16 +450,16 @@ watch(priorityListLength, () => {
                 trackBy="criteria"
                 label="label"
                 :loading="priorityCriteriaFields.isLoading"
-                :disabled="priorityCriteriaFields.isLoading || (!editMode && hasConfig)"
+                :disabled="priorityCriteriaFields.isLoading || formReadOnly"
                 :showLabels="false"
               ></Multiselect>
             </td>
             <td class="col-hollow">
-              <div class="d-flex flex-row text-center" style="text-align: end">
+              <div class="d-flex flex-row text-center" style="text-align: end" v-if="!formReadOnly">
                 <a class="action" data-toggle="tooltip" data-placement="top" title="Add list">
                   <font-awesome-icon icon="fa-solid fa-circle-plus" size="lg" @click.prevent="configStore.addList()" />
                 </a>
-                <a class="action" data-toggle="tooltip" data-placement="top" title="Remove list">
+                <a class="action" data-toggle="tooltip" data-placement="top" title="Remove list" v-if="listIndex !== 0">
                   <font-awesome-icon icon="fa-solid fa-circle-minus" size="lg" @click.prevent="configStore.removeList(listIndex)" />
                 </a>
               </div>

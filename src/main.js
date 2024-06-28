@@ -12,6 +12,8 @@ import {fab} from '@fortawesome/free-brands-svg-icons';
 
 import Multiselect from 'vue-multiselect';
 
+import 'bootstrap/dist/js/bootstrap.bundle.min';
+
 library.add(fas, far, fab);
 
 import App from './App.vue';

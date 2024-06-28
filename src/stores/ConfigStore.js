@@ -13,8 +13,6 @@ export function getDefaultPriorityObject() {
 export const useConfigStore = defineStore({
   id: 'config',
   state: () => ({
-    // eslint-disable-next-line no-undef
-    thisAppId: typeof kintone === 'undefined' ? 5 : kintone.app.getId(),
     referenceApp: null,
     isKintoneEnvironment: typeof kintone !== 'undefined',
     assignmentThresholdField: null,
@@ -22,8 +20,21 @@ export const useConfigStore = defineStore({
     threshold: 0,
     priorityList: [getDefaultPriorityObject()],
     editMode: false,
+    // source
+    sourceAssignmentDateField: null,
+    sourceDedicatedAssigneeField: null,
   }),
   getters: {
+    isKintoneEnvironment() {
+      return typeof kintone !== 'undefined';
+    },
+    thisAppId() {
+      // eslint-disable-next-line no-undef
+      return this.isKintoneEnvironment ? kintone.app.getId() : 5;
+    },
+    formReadOnly(state) {
+      return !state.editMode && this.hasConfig;
+    },
     hasConfig(state) {
       if (state.isKintoneEnvironment) {
         // eslint-disable-next-line no-undef
@@ -98,7 +109,15 @@ export const useConfigStore = defineStore({
         return;
       }
 
-      console.log({appId: this.referenceApp?.appId});
+      if (!this.assigneeField?.code) {
+        alert('Please select the assignee field');
+        return;
+      }
+
+      if (!this.sourceAssignmentDateField?.code) {
+        alert('Please select the source assignment date field');
+        return;
+      }
 
       const config = {
         priorityList: JSON.stringify(this.priorityList),
@@ -106,17 +125,13 @@ export const useConfigStore = defineStore({
         assignmentThresholdField: JSON.stringify(this.assignmentThresholdField),
         assigneeField: JSON.stringify(this.assigneeField),
         threshold: this.threshold.toString(),
+        sourceAssignmentDateField: JSON.stringify(this.sourceAssignmentDateField),
+        sourceDedicatedAssigneeField: JSON.stringify(this.sourceDedicatedAssigneeField),
       };
-
-      console.log({config});
 
       if (this.isKintoneEnvironment) {
         // eslint-disable-next-line no-undef
-        kintone.plugin.app.setConfig(config, () => {
-          alert('The plug-in settings have been saved. Please update the app!');
-          // eslint-disable-next-line no-undef
-          window.location.href = '../../flow?app=' + kintone.app.getId();
-        });
+        await kintone.plugin.app.setConfig(config);
       }
     },
     setReferenceApp(app) {
@@ -135,11 +150,19 @@ export const useConfigStore = defineStore({
     setThreshold(threshold) {
       this.threshold = threshold;
     },
+    setSourceAssignmentDateField(field) {
+      this.sourceAssignmentDateField = field;
+    },
+    setSourceDedicatedAssigneeField(field) {
+      this.sourceDedicatedAssigneeField = field;
+    },
+    setFirstComponentField(field) {
+      this.priorityList[0].component = field;
+    },
     toggleEditMode() {
       this.editMode = !this.editMode;
     },
     setDragOver(e, index) {
-      // console.log({targetName: e.target.localName});
       this.priorityList[index].isDragOver = true;
     },
     removeDragOver(e, index) {
@@ -154,6 +177,12 @@ export const useConfigStore = defineStore({
         }
         return acc;
       }, {});
+    },
+    redirectToSettingsPage() {
+      if (this.isKintoneEnvironment) {
+        // eslint-disable-next-line no-undef
+        window.location.href = `../../flow?app=${kintone.app.getId()}`;
+      }
     },
   },
 });
